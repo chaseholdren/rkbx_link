@@ -1,0 +1,19 @@
+[package]
+name = "rkbx_link"
+version = "1.1.0"
+edition = "2021"
+
+[dependencies]
+toy-arms = {package = "toy-arms_external", path = "../toy-arms_external"}
+winapi = "0.3.9"
+rosc = "0.10.1"
+rusty_link = "0.4.2"
+reqwest = {version = "0.12.7", features = ["blocking"]}
+termcolor = "1.4.1"
+binrw = "0.14.0"
+rekordcrate = { git = "https://github.com/grufkork/rekordcrate.git", branch = "main" }
+notify = "8.2.0"
+sacn = "0.10"
+
+[features]
+dev = []

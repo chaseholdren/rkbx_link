@@ -12,9 +12,10 @@ use std::io::Cursor;
 use std::sync::mpsc;
 use std::thread;
 use std::{marker::PhantomData, time::Duration};
-use toy_arms::external::error::TAExternalError;
-use toy_arms::external::{read, Process};
-use winapi::ctypes::c_void;
+use toy_arms::error::TAExternalError;
+use toy_arms::process::Process;
+use toy_arms::read;
+use winapi::um::winnt::HANDLE;
 
 #[derive(PartialEq, Clone)]
 struct ReadError {
@@ -22,19 +23,21 @@ struct ReadError {
     address: usize,
     error: TAExternalError,
 }
+
 struct Value<T> {
     address: usize,
-    handle: *mut c_void,
+    handle: HANDLE,
     _marker: PhantomData<T>,
 }
 
 impl<T> Value<T> {
-    fn new(h: *mut c_void, base: usize, offsets: &Pointer) -> Result<Value<T>, ReadError> {
+    fn new(h: HANDLE, base: usize, offsets: &Pointer) -> Result<Value<T>, ReadError> {
         let mut address = base;
 
         for offset in &offsets.offsets {
-            address = match read::<usize>(h, address + offset) {
-                Ok(val) => val,
+            let mut out: usize = 0;
+            match read::<usize>(&h, address + offset, std::mem::size_of::<usize>(), &mut out as *mut usize) {
+                Ok(()) => address = out,
                 Err(e) => {
                     return Err(ReadError {
                         pointer: Some(offsets.clone()),
@@ -52,17 +55,22 @@ impl<T> Value<T> {
             _marker: PhantomData::<T>,
         })
     }
+
     fn pointers_to_vals(
-        h: *mut c_void,
+        h: HANDLE,
         base: usize,
         pointers: &[Pointer],
     ) -> Result<Vec<Value<T>>, ReadError> {
-        pointers.iter().map(|x| Value::new(h, base, x)).collect()
+        pointers
+            .iter()
+            .map(|x| Value::new(h, base, x))
+            .collect()
     }
 
     fn read(&self) -> Result<T, ReadError> {
-        match read::<T>(self.handle, self.address) {
-            Ok(val) => Ok(val),
+        let mut out: T = unsafe { std::mem::zeroed() };
+        match read::<T>(&self.handle, self.address, std::mem::size_of::<T>(), &mut out as *mut T) {
+            Ok(()) => Ok(out),
             Err(e) => Err(ReadError {
                 pointer: None,
                 address: self.address,
@@ -73,14 +81,14 @@ impl<T> Value<T> {
 }
 
 struct PointerChainValue<T> {
-    handle: *mut c_void,
+    handle: HANDLE,
     base: usize,
     pointer: Pointer,
     _marker: PhantomData<T>,
 }
 
 impl<T> PointerChainValue<T> {
-    fn new(h: *mut c_void, base: usize, pointer: Pointer) -> PointerChainValue<T> {
+    fn new(h: HANDLE, base: usize, pointer: Pointer) -> PointerChainValue<T> {
         Self {
             handle: h,
             base,
@@ -90,7 +98,7 @@ impl<T> PointerChainValue<T> {
     }
 
     fn pointers_to_vals(
-        h: *mut c_void,
+        h: HANDLE,
         base: usize,
         pointers: &[Pointer],
     ) -> Vec<PointerChainValue<T>> {
@@ -127,7 +135,7 @@ impl Rekordbox {
                 })
             }
         };
-        let h = rb.process_handle;
+        let h = rb.handle;
 
         let base = match rb.get_module_base("rekordbox.exe") {
             Ok(b) => b,
@@ -714,7 +722,7 @@ impl TrackTracker {
             td.current_bpm = 120.0;
         }
 
-        
+
 
         let mut beat = 0.0;
         let mut original_bpm = 120.0;
